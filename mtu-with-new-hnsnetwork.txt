@@ -1,0 +1,487 @@
+In a new Windows Server version 1809 VM:
+
+#############################################################################
+#############################################################################
+Windows PowerShell
+Copyright (C) Microsoft Corporation. All rights reserved.
+
+PS C:\Windows\system32> Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
+
+Name                           Version          Source           Summary
+----                           -------          ------           -------
+nuget                          2.8.5.208        https://onege... NuGet provider for the OneGet meta-package manager
+
+
+PS C:\Windows\system32> Install-Module -Name DockerMsftProvider -Repository PSGallery -Force
+PS C:\Windows\system32> $docker_version = "18.09"
+PS C:\Windows\system32> Install-Package -Name docker -ProviderName DockerMsftProvider -Force -RequiredVersion ${docker_version}
+WARNING: A restart is required to enable the containers feature. Please restart your machine.
+
+Name                           Version          Source           Summary
+----                           -------          ------           -------
+Docker                         18.09.6          DockerDefault    Contains Docker EE for use with Windows Server.
+
+
+PS C:\Windows\system32> Restart-Computer -Force
+
+#############################################################################
+#############################################################################
+Windows PowerShell
+Copyright (C) Microsoft Corporation. All rights reserved.
+
+PS C:\Windows\system32> Restart-Service docker
+PS C:\Windows\system32> docker network ls
+NETWORK ID          NAME                DRIVER              SCOPE
+03cc74a257df        nat                 nat                 local
+cf2c1358972a        none                null                local
+PS C:\Windows\system32> Get-HnsNetwork
+
+
+ActivityId             : 4D33F926-F95A-4D6A-A7E2-194911DCF003
+AdditionalParams       :
+CurrentEndpointCount   : 0
+Extensions             : {@{Id=E7C3B2F0-F3C5-48DF-AF2B-10FED6D72E7A; IsEnabled=False; Name=Microsoft Windows Filtering Platform},
+                         @{Id=E9B59CFA-2BE1-4B21-828F-B6FBDBDDC017; IsEnabled=False; Name=Microsoft Azure VFP Switch Extension},
+                         @{Id=EA24CD6C-D17A-4348-9190-09F0D5BE83DD; IsEnabled=True; Name=Microsoft NDIS Capture}}
+Flags                  : 0
+Health                 : @{AddressNotificationMissedCount=0; AddressNotificationSequenceNumber=0; InterfaceNotificationMissedCount=0;
+                         InterfaceNotificationSequenceNumber=0; LastErrorCode=0; LastUpdateTime=132053549732110223;
+                         RouteNotificationMissedCount=0; RouteNotificationSequenceNumber=0}
+ID                     : 0F82BC87-81F4-4473-989E-014FD5814DC7
+IPv6                   : False
+LayeredOn              : 9F6FD7D8-8A8D-4003-A7E7-00817368DC5E
+MacPools               : {@{EndMacAddress=00-15-5D-63-7F-FF; StartMacAddress=00-15-5D-63-70-00}}
+MaxConcurrentEndpoints : 0
+Name                   : nat
+NatName                : ICS5465B41C-FDF1-4174-A5AF-A8783C4777FF
+Policies               : {}
+Resources              : @{AdditionalParams=; AllocationOrder=2; Allocators=System.Object[]; Health=;
+                         ID=4D33F926-F95A-4D6A-A7E2-194911DCF003; PortOperationTime=0; State=1; SwitchOperationTime=0;
+                         VfpOperationTime=0; parentId=55E848A6-F99F-4121-9C08-1A95370D059D}
+State                  : 1
+Subnets                : {@{AdditionalParams=; AddressPrefix=172.24.144.0/20; GatewayAddress=172.24.144.1; Health=;
+                         ID=6C91C9C3-5DAB-4BEF-8C8A-A5F113395325; Policies=System.Object[]; State=0}}
+TotalEndpoints         : 0
+Type                   : nat
+Version                : 38654705666
+
+#####################################################################
+## VM's primary NIC MTU is 1460, but container network assumes 1500:
+#####################################################################
+PS C:\Windows\system32> netsh interface ipv4 show subinterfaces
+
+   MTU  MediaSenseState   Bytes In  Bytes Out  Interface
+------  ---------------  ---------  ---------  -------------
+4294967295                1          0          0  Loopback Pseudo-Interface 1
+  1460                1    1425697    1020127  Ethernet
+  1500                1          0       1610  vEthernet (nat)
+
+PS C:\Windows\system32> netsh interface ipv4 set subinterface "vEthernet (nat)" mtu=1432 store=persistent
+Ok.
+
+PS C:\Windows\system32> netsh interface ipv4 set subinterface "Ethernet" mtu=1432 store=persistent
+Ok.
+
+#####################################################################
+## Force all MTUs to 1432 to start (no containers yet):
+#####################################################################
+PS C:\Windows\system32> netsh interface ipv4 show subinterfaces
+
+   MTU  MediaSenseState   Bytes In  Bytes Out  Interface
+------  ---------------  ---------  ---------  -------------
+4294967295                1          0          0  Loopback Pseudo-Interface 1
+  1432                1    1689341    1164354  Ethernet
+  1432                1          0       1610  vEthernet (nat)
+
+PS C:\Windows\system32> cd C:\
+PS C:\> Invoke-WebRequest https://github.com/Microsoft/SDN/raw/master/Kubernetes/windows/hns.psm1 -OutFile hns.psm1
+PS C:\> Import-Module -Force C:\hns.psm1
+WARNING: The names of some imported commands from the module 'hns' include unapproved verbs that might make them less discoverable. To
+find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs,
+type Get-Verb.
+PS C:\> docker pull mcr.microsoft.com/windows/nanoserver:1809
+1809: Pulling from windows/nanoserver
+4afaf8a8c3fa: Pull complete
+Digest: sha256:535887492a56d570a018063d259a99e576cf6092204f87c0d2937fb160e5b090
+Status: Downloaded newer image for mcr.microsoft.com/windows/nanoserver:1809
+PS C:\> docker image list
+REPOSITORY                             TAG                 IMAGE ID            CREATED             SIZE
+mcr.microsoft.com/windows/nanoserver   1809                e662afff12c3        6 days ago          250MB
+
+PS C:\> docker run --name default-container-network -di mcr.microsoft.com/windows/nanoserver:1809 cmd.exe
+4b105e1609f6742749f6024dc2591f4254a9bd77db41bcdfadae45a460ee25c6
+PS C:\> netsh interface ipv4 show subinterfaces
+
+   MTU  MediaSenseState   Bytes In  Bytes Out  Interface
+------  ---------------  ---------  ---------  -------------
+4294967295                1          0          0  Loopback Pseudo-Interface 1
+  1432                1  763115557    4495773  Ethernet
+  1432                1       4130      96139  vEthernet (nat)
+
+#####################################################################
+## On default container network, new containers still get an MTU of
+## 1500:
+#####################################################################
+PS C:\> docker exec default-container-network cmd.exe '/c netsh interface ipv4 show subinterfaces'
+
+   MTU  MediaSenseState   Bytes In  Bytes Out  Interface
+------  ---------------  ---------  ---------  -------------
+4294967295                1          0          0  Loopback Pseudo-Interface 2
+  1500                1     209514       5024  vEthernet (Ethernet)
+
+PS C:\> Get-NetAdapter
+
+Name                      InterfaceDescription                    ifIndex Status       MacAddress             LinkSpeed
+----                      --------------------                    ------- ------       ----------             ---------
+Ethernet                  Google VirtIO Ethernet Adapter                6 Up           42-01-0A-8A-00-05       100 Gbps
+vEthernet (Ethernet)                                                   17 Up           00-15-5D-63-74-E3        10 Gbps
+vEthernet (nat)           Hyper-V Virtual Ethernet Adapter             12 Up           00-15-5D-63-7A-72        10 Gbps
+
+PS C:\> Get-HnsNetwork
+
+
+ActivityId             : 4D33F926-F95A-4D6A-A7E2-194911DCF003
+AdditionalParams       :
+CurrentEndpointCount   : 1
+Extensions             : {@{Id=E7C3B2F0-F3C5-48DF-AF2B-10FED6D72E7A; IsEnabled=False; Name=Microsoft Windows Filtering Platform},
+                         @{Id=E9B59CFA-2BE1-4B21-828F-B6FBDBDDC017; IsEnabled=False; Name=Microsoft Azure VFP Switch Extension},
+                         @{Id=EA24CD6C-D17A-4348-9190-09F0D5BE83DD; IsEnabled=True; Name=Microsoft NDIS Capture}}
+Flags                  : 0
+Health                 : @{AddressNotificationMissedCount=0; AddressNotificationSequenceNumber=0; InterfaceNotificationMissedCount=0;
+                         InterfaceNotificationSequenceNumber=0; LastErrorCode=0; LastUpdateTime=132053549732110223;
+                         RouteNotificationMissedCount=0; RouteNotificationSequenceNumber=0}
+ID                     : 0F82BC87-81F4-4473-989E-014FD5814DC7
+IPv6                   : False
+LayeredOn              : 9F6FD7D8-8A8D-4003-A7E7-00817368DC5E
+MacPools               : {@{EndMacAddress=00-15-5D-63-7F-FF; StartMacAddress=00-15-5D-63-70-00}}
+MaxConcurrentEndpoints : 1
+Name                   : nat
+NatName                : ICS5465B41C-FDF1-4174-A5AF-A8783C4777FF
+Policies               : {}
+Resources              : @{AdditionalParams=; AllocationOrder=2; Allocators=System.Object[]; Health=;
+                         ID=4D33F926-F95A-4D6A-A7E2-194911DCF003; PortOperationTime=0; State=1; SwitchOperationTime=0;
+                         VfpOperationTime=0; parentId=55E848A6-F99F-4121-9C08-1A95370D059D}
+State                  : 1
+Subnets                : {@{AdditionalParams=; AddressPrefix=172.24.144.0/20; GatewayAddress=172.24.144.1; Health=;
+                         ID=6C91C9C3-5DAB-4BEF-8C8A-A5F113395325; Policies=System.Object[]; State=0}}
+TotalEndpoints         : 1
+Type                   : nat
+Version                : 38654705666
+
+PS C:\> docker network list
+NETWORK ID          NAME                DRIVER              SCOPE
+03cc74a257df        nat                 nat                 local
+cf2c1358972a        none                null                local
+
+#####################################################################
+## Create a new HNS network, as is typically done for Kubernetes
+## nodes (https://github.com/microsoft/SDN/blob/f670593b648e974e079b10dfa6ca8c8b307450ce/Kubernetes/containerd/start.ps1#L344):
+#####################################################################
+PS C:\> New-HNSNetwork `
+>>        -Type "L2Bridge" `
+>>        -AddressPrefix "192.168.255.0/30" `
+>>        -Gateway "192.168.255.1" `
+>>        -Name "External" `
+>>        -Verbose
+VERBOSE: Invoke-HNSRequest Method[POST] Path[/networks] Data[{
+    "Subnets":  [
+                    {
+                        "GatewayAddress":  "192.168.255.1",
+                        "AddressPrefix":  "192.168.255.0/30"
+                    }
+                ],
+    "Name":  "External",
+    "Type":  "L2Bridge"
+}]
+VERBOSE: Result :
+{"Output":{"ActivityId":"D39AB36F-CFD7-49FD-A850-B11B01235114","AdditionalParams":{},"CurrentEndpointCount":0,"Extensions":[{"Id":"E7C3B
+2F0-F3C5-48DF-AF2B-10FED6D72E7A","IsEnabled":false,"Name":"Microsoft Windows Filtering
+Platform"},{"Id":"E9B59CFA-2BE1-4B21-828F-B6FBDBDDC017","IsEnabled":true,"Name":"Microsoft Azure VFP Switch
+Extension"},{"Id":"EA24CD6C-D17A-4348-9190-09F0D5BE83DD","IsEnabled":true,"Name":"Microsoft NDIS
+Capture"}],"Flags":0,"Health":{"LastErrorCode":0,"LastUpdateTime":132053679924342821},"ID":"544A3CAB-A2FF-45FE-8E35-08C709B6E69F","IPv6"
+:false,"LayeredOn":"1C6F0B0A-7BB1-4EB6-A6BE-FEB346DBADAD","MacPools":[{"EndMacAddress":"00-15-5D-3E-AF-FF","StartMacAddress":"00-15-5D-3
+E-A0-00"}],"ManagementIP":"10.138.0.5","MaxConcurrentEndpoints":0,"Name":"External","Policies":[],"Resources":{"AdditionalParams":{},"Al
+locationOrder":0,"Health":{"LastErrorCode":0,"LastUpdateTime":132053679942716028},"ID":"D39AB36F-CFD7-49FD-A850-B11B01235114","PortOpera
+tionTime":0,"State":1,"SwitchOperationTime":0,"VfpOperationTime":0,"parentId":"D1199153-8EE9-4572-A9B0-3362F5563C3E"},"State":1,"Subnets
+":[{"AdditionalParams":{},"AddressPrefix":"192.168.255.0/30","GatewayAddress":"192.168.255.1","Health":{"LastErrorCode":0,"LastUpdateTim
+e":132053679924342821},"ID":"18C34090-D87D-4645-8820-5758B33044F2","ObjectType":5,"Policies":[],"State":0}],"TotalEndpoints":0,"Type":"L
+2Bridge","Version":38654705666},"Success":true}
+
+
+ActivityId             : D39AB36F-CFD7-49FD-A850-B11B01235114
+AdditionalParams       :
+CurrentEndpointCount   : 0
+Extensions             : {@{Id=E7C3B2F0-F3C5-48DF-AF2B-10FED6D72E7A; IsEnabled=False; Name=Microsoft Windows Filtering Platform},
+                         @{Id=E9B59CFA-2BE1-4B21-828F-B6FBDBDDC017; IsEnabled=True; Name=Microsoft Azure VFP Switch Extension},
+                         @{Id=EA24CD6C-D17A-4348-9190-09F0D5BE83DD; IsEnabled=True; Name=Microsoft NDIS Capture}}
+Flags                  : 0
+Health                 : @{LastErrorCode=0; LastUpdateTime=132053679924342821}
+ID                     : 544A3CAB-A2FF-45FE-8E35-08C709B6E69F
+IPv6                   : False
+LayeredOn              : 1C6F0B0A-7BB1-4EB6-A6BE-FEB346DBADAD
+MacPools               : {@{EndMacAddress=00-15-5D-3E-AF-FF; StartMacAddress=00-15-5D-3E-A0-00}}
+ManagementIP           : 10.138.0.5
+MaxConcurrentEndpoints : 0
+Name                   : External
+Policies               : {}
+Resources              : @{AdditionalParams=; AllocationOrder=0; Health=; ID=D39AB36F-CFD7-49FD-A850-B11B01235114; PortOperationTime=0;
+                         State=1; SwitchOperationTime=0; VfpOperationTime=0; parentId=D1199153-8EE9-4572-A9B0-3362F5563C3E}
+State                  : 1
+Subnets                : {@{AdditionalParams=; AddressPrefix=192.168.255.0/30; GatewayAddress=192.168.255.1; Health=;
+                         ID=18C34090-D87D-4645-8820-5758B33044F2; ObjectType=5; Policies=System.Object[]; State=0}}
+TotalEndpoints         : 0
+Type                   : L2Bridge
+Version                : 38654705666
+
+PS C:\> Get-NetAdapter
+
+Name                      InterfaceDescription                    ifIndex Status       MacAddress             LinkSpeed
+----                      --------------------                    ------- ------       ----------             ---------
+Ethernet                  Google VirtIO Ethernet Adapter                6 Up           42-01-0A-8A-00-05       100 Gbps
+vEthernet (Ethernet)                                                   17 Up           00-15-5D-63-74-E3        10 Gbps
+vEthernet (nat)           Hyper-V Virtual Ethernet Adapter             12 Up           00-15-5D-63-7A-72        10 Gbps
+vEthernet (Ethernet) 2    Hyper-V Virtual Ethernet Adapter #3           8 Up           42-01-0A-8A-00-05       100 Gbps
+
+#####################################################################
+## The just-created L2Bridge type HNS network subsumes the previous
+## Ethernet interface with the "vEthernet (Ethernet) 2" interface
+## which for some reason has an MTU of 1450 rather than 1432 or 1500.
+## Also, the MTU of the existing "vEthernet (nat)" interface has been
+## decreased by 50 bytes!
+#####################################################################
+PS C:\> netsh interface ipv4 show subinterfaces
+
+   MTU  MediaSenseState   Bytes In  Bytes Out  Interface
+------  ---------------  ---------  ---------  -------------
+4294967295                1          0          0  Loopback Pseudo-Interface 1
+  1382                1      20451     112615  vEthernet (nat)
+  1450                1   45199185     901573  vEthernet (Ethernet) 2
+
+PS C:\> Get-HnsNetwork
+
+ActivityId             : 4D33F926-F95A-4D6A-A7E2-194911DCF003
+AdditionalParams       :
+CurrentEndpointCount   : 1
+Extensions             : {@{Id=E7C3B2F0-F3C5-48DF-AF2B-10FED6D72E7A; IsEnabled=False; Name=Microsoft Windows Filtering Platform},
+                         @{Id=E9B59CFA-2BE1-4B21-828F-B6FBDBDDC017; IsEnabled=False; Name=Microsoft Azure VFP Switch Extension},
+                         @{Id=EA24CD6C-D17A-4348-9190-09F0D5BE83DD; IsEnabled=True; Name=Microsoft NDIS Capture}}
+Flags                  : 0
+Health                 : @{AddressNotificationMissedCount=0; AddressNotificationSequenceNumber=0; InterfaceNotificationMissedCount=0;
+                         InterfaceNotificationSequenceNumber=0; LastErrorCode=0; LastUpdateTime=132053549732110223;
+                         RouteNotificationMissedCount=0; RouteNotificationSequenceNumber=0}
+ID                     : 0F82BC87-81F4-4473-989E-014FD5814DC7
+IPv6                   : False
+LayeredOn              : 9F6FD7D8-8A8D-4003-A7E7-00817368DC5E
+MacPools               : {@{EndMacAddress=00-15-5D-63-7F-FF; StartMacAddress=00-15-5D-63-70-00}}
+MaxConcurrentEndpoints : 1
+Name                   : nat
+NatName                : ICS5465B41C-FDF1-4174-A5AF-A8783C4777FF
+Policies               : {}
+Resources              : @{AdditionalParams=; AllocationOrder=2; Allocators=System.Object[]; Health=;
+                         ID=4D33F926-F95A-4D6A-A7E2-194911DCF003; PortOperationTime=0; State=1; SwitchOperationTime=0;
+                         VfpOperationTime=0; parentId=55E848A6-F99F-4121-9C08-1A95370D059D}
+State                  : 1
+Subnets                : {@{AdditionalParams=; AddressPrefix=172.24.144.0/20; GatewayAddress=172.24.144.1; Health=;
+                         ID=6C91C9C3-5DAB-4BEF-8C8A-A5F113395325; Policies=System.Object[]; State=0}}
+TotalEndpoints         : 1
+Type                   : nat
+Version                : 38654705666
+
+ActivityId             : D39AB36F-CFD7-49FD-A850-B11B01235114
+AdditionalParams       :
+CurrentEndpointCount   : 0
+Extensions             : {@{Id=E7C3B2F0-F3C5-48DF-AF2B-10FED6D72E7A; IsEnabled=False; Name=Microsoft Windows Filtering Platform},
+                         @{Id=E9B59CFA-2BE1-4B21-828F-B6FBDBDDC017; IsEnabled=True; Name=Microsoft Azure VFP Switch Extension},
+                         @{Id=EA24CD6C-D17A-4348-9190-09F0D5BE83DD; IsEnabled=True; Name=Microsoft NDIS Capture}}
+Flags                  : 0
+Health                 : @{LastErrorCode=0; LastUpdateTime=132053679924342821}
+ID                     : 544A3CAB-A2FF-45FE-8E35-08C709B6E69F
+IPv6                   : False
+LayeredOn              : 1C6F0B0A-7BB1-4EB6-A6BE-FEB346DBADAD
+MacPools               : {@{EndMacAddress=00-15-5D-3E-AF-FF; StartMacAddress=00-15-5D-3E-A0-00}}
+ManagementIP           : 10.138.0.5
+MaxConcurrentEndpoints : 0
+Name                   : External
+Policies               : {}
+Resources              : @{AdditionalParams=; AllocationOrder=0; Health=; ID=D39AB36F-CFD7-49FD-A850-B11B01235114; PortOperationTime=0;
+                         State=1; SwitchOperationTime=0; VfpOperationTime=0; parentId=D1199153-8EE9-4572-A9B0-3362F5563C3E}
+State                  : 1
+Subnets                : {@{AdditionalParams=; AddressPrefix=192.168.255.0/30; GatewayAddress=192.168.255.1; Health=;
+                         ID=18C34090-D87D-4645-8820-5758B33044F2; ObjectType=5; Policies=System.Object[]; State=0}}
+TotalEndpoints         : 0
+Type                   : L2Bridge
+Version                : 38654705666
+
+PS C:\> docker run --name after-new-hnsnetwork -di mcr.microsoft.com/windows/nanoserver:1809 cmd.exe
+922c7d5809af3fab6c358ae70056963a0e6c32819b6e95ae787d8e72c9eab9ae
+PS C:\> Get-NetAdapter
+
+Name                      InterfaceDescription                    ifIndex Status       MacAddress             LinkSpeed
+----                      --------------------                    ------- ------       ----------             ---------
+Ethernet                  Google VirtIO Ethernet Adapter                6 Up           42-01-0A-8A-00-05       100 Gbps
+vEthernet (Ethernet) 3                                                 27 Up           00-15-5D-63-70-23        10 Gbps
+vEthernet (Ethernet)                                                   17 Up           00-15-5D-63-74-E3        10 Gbps
+vEthernet (nat)           Hyper-V Virtual Ethernet Adapter             12 Up           00-15-5D-63-7A-72        10 Gbps
+vEthernet (Ethernet) 2    Hyper-V Virtual Ethernet Adapter #3           8 Up           42-01-0A-8A-00-05       100 Gbps
+
+
+PS C:\> netsh interface ipv4 show subinterfaces
+
+   MTU  MediaSenseState   Bytes In  Bytes Out  Interface
+------  ---------------  ---------  ---------  -------------
+4294967295                1          0          0  Loopback Pseudo-Interface 1
+  1382                1      34161     210863  vEthernet (nat)
+  1450                1  100086696    2016233  vEthernet (Ethernet) 2
+
+#####################################################################
+## The just-created container is still connected as an endpoint on
+## the default nat container network, not the L2Bridge network.
+#####################################################################
+PS C:\> Get-HnsNetwork
+
+ActivityId             : 4D33F926-F95A-4D6A-A7E2-194911DCF003
+AdditionalParams       :
+CurrentEndpointCount   : 2
+Extensions             : {@{Id=E7C3B2F0-F3C5-48DF-AF2B-10FED6D72E7A; IsEnabled=False; Name=Microsoft Windows Filtering Platform},
+                         @{Id=E9B59CFA-2BE1-4B21-828F-B6FBDBDDC017; IsEnabled=False; Name=Microsoft Azure VFP Switch Extension},
+                         @{Id=EA24CD6C-D17A-4348-9190-09F0D5BE83DD; IsEnabled=True; Name=Microsoft NDIS Capture}}
+Flags                  : 0
+Health                 : @{AddressNotificationMissedCount=0; AddressNotificationSequenceNumber=0; InterfaceNotificationMissedCount=0;
+                         InterfaceNotificationSequenceNumber=0; LastErrorCode=0; LastUpdateTime=132053549732110223;
+                         RouteNotificationMissedCount=0; RouteNotificationSequenceNumber=0}
+ID                     : 0F82BC87-81F4-4473-989E-014FD5814DC7
+IPv6                   : False
+LayeredOn              : 9F6FD7D8-8A8D-4003-A7E7-00817368DC5E
+MacPools               : {@{EndMacAddress=00-15-5D-63-7F-FF; StartMacAddress=00-15-5D-63-70-00}}
+MaxConcurrentEndpoints : 2
+Name                   : nat
+NatName                : ICS5465B41C-FDF1-4174-A5AF-A8783C4777FF
+Policies               : {}
+Resources              : @{AdditionalParams=; AllocationOrder=2; Allocators=System.Object[]; Health=;
+                         ID=4D33F926-F95A-4D6A-A7E2-194911DCF003; PortOperationTime=0; State=1; SwitchOperationTime=0;
+                         VfpOperationTime=0; parentId=55E848A6-F99F-4121-9C08-1A95370D059D}
+State                  : 1
+Subnets                : {@{AdditionalParams=; AddressPrefix=172.24.144.0/20; GatewayAddress=172.24.144.1; Health=;
+                         ID=6C91C9C3-5DAB-4BEF-8C8A-A5F113395325; Policies=System.Object[]; State=0}}
+TotalEndpoints         : 2
+Type                   : nat
+Version                : 38654705666
+
+ActivityId             : D39AB36F-CFD7-49FD-A850-B11B01235114
+AdditionalParams       :
+CurrentEndpointCount   : 0
+Extensions             : {@{Id=E7C3B2F0-F3C5-48DF-AF2B-10FED6D72E7A; IsEnabled=False; Name=Microsoft Windows Filtering Platform},
+                         @{Id=E9B59CFA-2BE1-4B21-828F-B6FBDBDDC017; IsEnabled=True; Name=Microsoft Azure VFP Switch Extension},
+                         @{Id=EA24CD6C-D17A-4348-9190-09F0D5BE83DD; IsEnabled=True; Name=Microsoft NDIS Capture}}
+Flags                  : 0
+Health                 : @{LastErrorCode=0; LastUpdateTime=132053679924342821}
+ID                     : 544A3CAB-A2FF-45FE-8E35-08C709B6E69F
+IPv6                   : False
+LayeredOn              : 1C6F0B0A-7BB1-4EB6-A6BE-FEB346DBADAD
+MacPools               : {@{EndMacAddress=00-15-5D-3E-AF-FF; StartMacAddress=00-15-5D-3E-A0-00}}
+ManagementIP           : 10.138.0.5
+MaxConcurrentEndpoints : 0
+Name                   : External
+Policies               : {}
+Resources              : @{AdditionalParams=; AllocationOrder=0; Health=; ID=D39AB36F-CFD7-49FD-A850-B11B01235114; PortOperationTime=0;
+                         State=1; SwitchOperationTime=0; VfpOperationTime=0; parentId=D1199153-8EE9-4572-A9B0-3362F5563C3E}
+State                  : 1
+Subnets                : {@{AdditionalParams=; AddressPrefix=192.168.255.0/30; GatewayAddress=192.168.255.1; Health=;
+                         ID=18C34090-D87D-4645-8820-5758B33044F2; ObjectType=5; Policies=System.Object[]; State=0}}
+TotalEndpoints         : 0
+Type                   : L2Bridge
+Version                : 38654705666
+
+#####################################################################
+## The MTU of the just-created container is 1450 instead of 1500!
+#####################################################################
+PS C:\> docker exec after-new-hnsnetwork cmd.exe '/c netsh interface ipv4 show subinterfaces'
+
+   MTU  MediaSenseState   Bytes In  Bytes Out  Interface
+------  ---------------  ---------  ---------  -------------
+4294967295                1          0          0  Loopback Pseudo-Interface 3
+  1450                1     191610       4394  vEthernet (Ethernet) 3
+
+#####################################################################
+## Remove the HNS network we just created:
+#####################################################################
+PS C:\> Get-HnsNetwork | Where-Object Name -eq "External" | Remove-HnsNetwork
+PS C:\> Get-NetAdapter
+
+Name                      InterfaceDescription                    ifIndex Status       MacAddress             LinkSpeed
+----                      --------------------                    ------- ------       ----------             ---------
+Ethernet                  Google VirtIO Ethernet Adapter                6 Up           42-01-0A-8A-00-05       100 Gbps
+vEthernet (Ethernet) 3                                                 27 Up           00-15-5D-63-70-23        10 Gbps
+vEthernet (Ethernet)                                                   17 Up           00-15-5D-63-74-E3        10 Gbps
+vEthernet (nat)           Hyper-V Virtual Ethernet Adapter             12 Up           00-15-5D-63-7A-72        10 Gbps
+
+
+#####################################################################
+## The Ethernet interface is back with the same MTU that we set it to
+## previously, but the MTU of the "vEthernet (nat)" interface is
+## still 50 bytes less than what we set it to.
+#####################################################################
+PS C:\> netsh interface ipv4 show subinterfaces
+
+   MTU  MediaSenseState   Bytes In  Bytes Out  Interface
+------  ---------------  ---------  ---------  -------------
+4294967295                1          0          0  Loopback Pseudo-Interface 1
+  1432                1   19948152     212130  Ethernet
+  1382                1      45352     223624  vEthernet (nat)
+
+PS C:\> docker run --name after-remove-hnsnetwork -di mcr.microsoft.com/windows/nanoserver:1809 cmd.exe
+c844efa4150b17eca1bc3b3dcf17ba575b8358683ca089b5cc696f3b3b796eac
+
+#####################################################################
+## Newly created containers now get an MTU of 1500 again.
+#####################################################################
+PS C:\> docker exec after-remove-hnsnetwork cmd.exe '/c netsh interface ipv4 show subinterfaces'
+
+   MTU  MediaSenseState   Bytes In  Bytes Out  Interface
+------  ---------------  ---------  ---------  -------------
+4294967295                1          0          0  Loopback Pseudo-Interface 4
+  1500                1     191530       4451  vEthernet (Ethernet) 2
+
+PS C:\> Get-HnsNetwork
+
+ActivityId             : 4D33F926-F95A-4D6A-A7E2-194911DCF003
+AdditionalParams       :
+CurrentEndpointCount   : 3
+Extensions             : {@{Id=E7C3B2F0-F3C5-48DF-AF2B-10FED6D72E7A; IsEnabled=False; Name=Microsoft Windows Filtering Platform},
+                         @{Id=E9B59CFA-2BE1-4B21-828F-B6FBDBDDC017; IsEnabled=False; Name=Microsoft Azure VFP Switch Extension},
+                         @{Id=EA24CD6C-D17A-4348-9190-09F0D5BE83DD; IsEnabled=True; Name=Microsoft NDIS Capture}}
+Flags                  : 0
+Health                 : @{AddressNotificationMissedCount=0; AddressNotificationSequenceNumber=0; InterfaceNotificationMissedCount=0;
+                         InterfaceNotificationSequenceNumber=0; LastErrorCode=0; LastUpdateTime=132053549732110223;
+                         RouteNotificationMissedCount=0; RouteNotificationSequenceNumber=0}
+ID                     : 0F82BC87-81F4-4473-989E-014FD5814DC7
+IPv6                   : False
+LayeredOn              : 9F6FD7D8-8A8D-4003-A7E7-00817368DC5E
+MacPools               : {@{EndMacAddress=00-15-5D-63-7F-FF; StartMacAddress=00-15-5D-63-70-00}}
+MaxConcurrentEndpoints : 3
+Name                   : nat
+NatName                : ICS5465B41C-FDF1-4174-A5AF-A8783C4777FF
+Policies               : {}
+Resources              : @{AdditionalParams=; AllocationOrder=2; Allocators=System.Object[]; Health=;
+                         ID=4D33F926-F95A-4D6A-A7E2-194911DCF003; PortOperationTime=0; State=1; SwitchOperationTime=0;
+                         VfpOperationTime=0; parentId=55E848A6-F99F-4121-9C08-1A95370D059D}
+State                  : 1
+Subnets                : {@{AdditionalParams=; AddressPrefix=172.24.144.0/20; GatewayAddress=172.24.144.1; Health=;
+                         ID=6C91C9C3-5DAB-4BEF-8C8A-A5F113395325; Policies=System.Object[]; State=0}}
+TotalEndpoints         : 3
+Type                   : nat
+Version                : 38654705666
+
+PS C:\> docker exec after-new-hnsnetwork cmd.exe '/c netsh interface ipv4 show subinterfaces'
+
+   MTU  MediaSenseState   Bytes In  Bytes Out  Interface
+------  ---------------  ---------  ---------  -------------
+4294967295                1          0          0  Loopback Pseudo-Interface 3
+  1450                1     222888      15821  vEthernet (Ethernet) 3
+
+PS C:\> docker exec default-container-network cmd.exe '/c netsh interface ipv4 show subinterfaces'
+
+   MTU  MediaSenseState   Bytes In  Bytes Out  Interface
+------  ---------------  ---------  ---------  -------------
+4294967295                1          0          0  Loopback Pseudo-Interface 2
+  1500                1     243998      30811  vEthernet (Ethernet)
